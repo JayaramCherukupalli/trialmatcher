@@ -167,9 +167,13 @@ app.get('/{*path}', (req, res) => {
   });
 });
 
-app.listen(port, () => {
-  console.log(`✓ Clinical Trial Matcher backend running on http://localhost:${port}`);
-});
+if (!process.env.VERCEL) {
+  app.listen(port, () => {
+    console.log(`✓ Clinical Trial Matcher backend running on http://localhost:${port}`);
+  });
+}
+
+export default app;
 
 // ── Multi-Record Text & Clinical Note Parser ──────────────────────────
 function parseMultiRecordText(rawText, fileName) {
