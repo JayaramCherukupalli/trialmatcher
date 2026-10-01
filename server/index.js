@@ -222,33 +222,33 @@ function parseMultiRecordText(rawText, fileName) {
 function parseOnePatient(text, id, fileName) {
   // 1. Extract Name
   let name = null;
-  const lastFirstMatch = text.match(/([A-Z][a-z]+),\s*([A-Z][a-z]+)/); // e.g. "Jenkins, Sarah"
-  const chartUpdateMatch = text.match(/Chart Update:\s*([A-Z]\.?\s+[A-Za-z]+|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i); // "Chart Update: R. Chen"
-  const patientNamedMatch = text.match(/Patient\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i); // "Patient David Ross"
-  const patientColonMatch = text.match(/Patient:\s*([^\n|,]+)/i); // "Patient: Sarah Jenkins"
+  const patientColonMatch = text.match(/Patient:\s*([^|\n;,]+)/i);
+  const patientNamedMatch = text.match(/Patient\s+([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
+  const chartUpdateMatch = text.match(/Chart Update:\s*([A-Z]\.?\s+[A-Za-z]+|[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)/i);
+  const lastFirstMatch = text.match(/\b([A-Z][a-z]+),\s*([A-Z][a-z]+)\b/);
 
-  if (lastFirstMatch) {
-    name = `${lastFirstMatch[2]} ${lastFirstMatch[1]}`;
-  } else if (patientColonMatch) {
+  if (patientColonMatch) {
     name = patientColonMatch[1].trim();
   } else if (patientNamedMatch) {
     name = patientNamedMatch[1].trim();
   } else if (chartUpdateMatch) {
     name = chartUpdateMatch[1].trim();
+  } else if (lastFirstMatch && !/female|male|age|dob|chart|stage|grade|status/i.test(lastFirstMatch[1]) && !/female|male|age|dob|chart|stage|grade|status/i.test(lastFirstMatch[2])) {
+    name = `${lastFirstMatch[2]} ${lastFirstMatch[1]}`;
   } else {
     name = `Patient ${id}`;
   }
 
   // 2. Extract Age
   let age = null;
-  const ageYMatch = text.match(/(\d{1,3})\s*y(?:o|ear|ears|rs)?\b/i); // "58y", "58yo"
-  const ageColonMatch = text.match(/Age[:\s]+(\d{1,3})/i); // "Age: 58", "Age 62"
+  const ageColonMatch = text.match(/Age[:\s]+(\d{1,3})/i);
+  const ageYMatch = text.match(/(\d{1,3})\s*y(?:o|ear|ears|rs)?\b/i);
   const dobMatch = text.match(/DOB:\s*(\d{4})-\d{2}-\d{2}/i);
 
-  if (ageYMatch) {
-    age = parseInt(ageYMatch[1]);
-  } else if (ageColonMatch) {
+  if (ageColonMatch) {
     age = parseInt(ageColonMatch[1]);
+  } else if (ageYMatch) {
+    age = parseInt(ageYMatch[1]);
   } else if (dobMatch) {
     age = 2026 - parseInt(dobMatch[1]);
   } else {
@@ -293,10 +293,10 @@ function parseOnePatient(text, id, fileName) {
 
   // 6. Extract Brain MRI / Cranial Status
   let brainMRI = 'Not on file';
-  if (/pending\s+contrast|pending.*?order|pending\s+baseline|MRI brain is pending/i.test(text)) {
+  if (/pending\s+contrast|pending.*?order|pending\s+baseline|MRI brain is pending|pending execution/i.test(text)) {
     brainMRI = 'Pending contrast MRI (Order CPT 70553 required)';
-  } else if (/negative for (?:metastases|mets)|cranial.*?negative|MRI.*?negative/i.test(text)) {
-    const mriDateMatch = text.match(/done\s+(\d{4}-\d{2}-\d{2})/i) || text.match(/(\d{4}-\d{2}-\d{2})/);
+  } else if (/no evidence of (?:intracranial|active|brain)?\s*metastases|negative for (?:metastases|mets)|cranial.*?negative|MRI.*?negative|head ct.*?no evidence/i.test(text)) {
+    const mriDateMatch = text.match(/(?:conducted on|done|sampled|dated)\s*(\d{4}-\d{2}-\d{2})/i) || text.match(/(\d{4}-\d{2}-\d{2})/);
     brainMRI = `Negative for metastases${mriDateMatch ? ` (${mriDateMatch[1]})` : ''}`;
   } else if (/positive for (?:metastases|mets)|active brain|enhancing lesions/i.test(text)) {
     brainMRI = 'Positive - Active brain metastases identified';
@@ -309,13 +309,12 @@ function parseOnePatient(text, id, fileName) {
   if (/treatment-naive|no previous lines|no prior/i.test(text)) {
     priorChemo = 'Treatment-naive (No prior systemic lines)';
   } else if (/carboplatin|cisplatin|oxaliplatin|pemetrexed|gemcitabine|platinum/i.test(text)) {
-    const chemoDetails = text.match(/(?:Completed standard \d+ cycles of|Completed first-line Platinum-based chemotherapy \()([^)\n]+)/i);
-    if (chemoDetails) {
-      priorChemo = `${chemoDetails[1].trim()} (Platinum-based)`;
-    } else if (/carboplatin/i.test(text) && /pemetrexed/i.test(text)) {
-      priorChemo = 'Carboplatin + Pemetrexed (Completed 2026-04)';
+    if (/carboplatin/i.test(text) && /pemetrexed/i.test(text)) {
+      priorChemo = 'Carboplatin + Pemetrexed doublet completed (Platinum-based)';
     } else if (/cisplatin/i.test(text)) {
-      priorChemo = 'Cisplatin + Gemcitabine (Platinum-based line)';
+      priorChemo = 'Cisplatin + Gemcitabine completed (Platinum-based)';
+    } else if (/carboplatin/i.test(text)) {
+      priorChemo = 'Carboplatin doublet completed (Platinum-based)';
     } else {
       priorChemo = 'Platinum-based chemotherapy doublet received';
     }
@@ -428,7 +427,12 @@ function parseCsvPatients(csvText, fileName) {
 function fallbackParseCriteria(rawText, fileName) {
   const lines = rawText.split('\n')
     .map(l => l.trim())
-    .filter(l => l.match(/^[-•*\d.]\s*/) || l.match(/^(?:inclusion|exclusion|criterion)/i));
+    .filter(l => {
+      if (/^(?:Inclusion\s*(?:&|and)?\s*Exclusion\s*Criteria|Inclusion\s*Criteria|Exclusion\s*Criteria)[:\s]*$/i.test(l)) {
+        return false;
+      }
+      return l.match(/^[-•*\d.]\s*/) || l.match(/^(?:inclusion|exclusion|criterion)\s*[:\d]/i);
+    });
 
   const criteria = lines.map((line, i) => ({
     id: i,

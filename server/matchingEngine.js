@@ -97,10 +97,19 @@ export function evaluatePatient(patient, trial) {
 
     // 2. Age Restrictions (e.g. 18-75 years)
     if (descLower.includes('age') || descLower.includes('years')) {
-      const ageMinMatch = descLower.match(/(?:>=|at least|from|\b)\s*(\d{2})\s*(?:-|to|years)/);
-      const ageMaxMatch = descLower.match(/(?:<=|up to|to|-)\s*(\d{2})\s*years/);
-      const minAge = ageMinMatch ? parseInt(ageMinMatch[1]) : 18;
-      const maxAge = ageMaxMatch ? parseInt(ageMaxMatch[1]) : 75;
+      let minAge = 18;
+      let maxAge = 75;
+
+      const betweenMatch = descLower.match(/(?:between|from)?\s*(\d{1,3})\s*(?:and|-|to)\s*(\d{1,3})\s*(?:years|yo)?/i);
+      if (betweenMatch) {
+        minAge = parseInt(betweenMatch[1]);
+        maxAge = parseInt(betweenMatch[2]);
+      } else {
+        const minM = descLower.match(/(?:>=|at least|older than|minimum age of?)\s*(\d{1,3})/i);
+        const maxM = descLower.match(/(?:<=|up to|younger than|maximum age of?)\s*(\d{1,3})/i);
+        if (minM) minAge = parseInt(minM[1]);
+        if (maxM) maxAge = parseInt(maxM[1]);
+      }
 
       if (extracted.age !== null && extracted.age !== undefined) {
         if (extracted.age < minAge || extracted.age > maxAge) {
